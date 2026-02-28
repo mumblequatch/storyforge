@@ -1,55 +1,78 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StoryEngine, Icons } from '../lib/storyData.jsx';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { StoryEngine, Icons, renderFormattedText, validateStory } from '../lib/storyData.jsx';
 
-const PreviewPanel = ({ scenes }) => {
+// Each "beat" = { scene title/content, choices[], chosenId | null }
+// History is an array of beats. The last beat has chosenId=null (active).
+
+const PreviewPanel = ({ scenes, onGoToEditor }) => {
   const [engine, setEngine] = useState(null);
-  const [state, setState] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [beats, setBeats] = useState([]);
   const contentRef = useRef(null);
 
+  const buildBeat = (eng) => {
+    const st = eng.getCurrentState();
+    return {
+      title: st.title,
+      content: st.content,
+      choices: st.choices, // all choices with targetSceneId
+      isEnd: st.isEnd,
+      chosenId: null,
+    };
+  };
+
   useEffect(() => {
-    const newEngine = new StoryEngine(scenes);
-    setEngine(newEngine);
-    setState(newEngine.getCurrentState());
-    setHistory([]);
+    const eng = new StoryEngine(scenes);
+    setEngine(eng);
+    setBeats([buildBeat(eng)]);
   }, [scenes]);
 
   useEffect(() => {
     if (contentRef.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
-  }, [history]);
+  }, [beats]);
 
-  const handleChoice = (choiceId, choiceText) => {
+  const handleChoice = (choiceId) => {
     if (!engine) return;
-    setHistory(prev => [...prev, { type: 'choice', text: choiceText }]);
-    const newState = engine.makeChoice(choiceId);
-    setHistory(prev => [...prev, { type: 'content', title: newState.title, text: newState.content }]);
-    setState(newState);
+    // Mark current beat's chosen
+    setBeats(prev => {
+      const updated = [...prev];
+      updated[updated.length - 1] = { ...updated[updated.length - 1], chosenId: choiceId };
+      return updated;
+    });
+    // Advance engine
+    engine.makeChoice(choiceId);
+    const newBeat = buildBeat(engine);
+    setBeats(prev => [...prev, newBeat]);
   };
 
   const handleRestart = () => {
     if (!engine) return;
-    const newState = engine.restart();
-    setState(newState);
-    setHistory([]);
+    engine.restart();
+    setBeats([buildBeat(engine)]);
   };
 
   const handleBack = () => {
-    if (!engine || engine.history.length === 0) return;
-    const newState = engine.goBack();
-    setState(newState);
-    setHistory(prev => prev.slice(0, -2));
+    if (!engine || beats.length <= 1) return;
+    engine.goBack();
+    // Remove last beat and un-choose the previous one
+    setBeats(prev => {
+      const updated = prev.slice(0, -1);
+      updated[updated.length - 1] = { ...updated[updated.length - 1], chosenId: null };
+      return updated;
+    });
   };
 
-  if (!state) return null;
+  const validationIssues = useMemo(() => validateStory(scenes), [scenes]);
+
+  if (beats.length === 0) return null;
 
   return (
     <div className="preview-panel">
       <div className="preview-header">
         <h2>Story Preview</h2>
         <div className="preview-controls">
-          <button onClick={handleBack} disabled={!engine || engine.history.length === 0}>
+          <button onClick={handleBack} disabled={beats.length <= 1}>
             <Icons.Back /> Back
           </button>
           <button onClick={handleRestart}>
@@ -58,48 +81,76 @@ const PreviewPanel = ({ scenes }) => {
         </div>
       </div>
 
-      <div className="preview-content" ref={contentRef}>
-        {history.length === 0 && (
-          <div className="story-passage">
-            {state.title && <h3 className="passage-title">{state.title}</h3>}
-            <p className="passage-text">{state.content || <em>This scene has no content yet.</em>}</p>
+      {validationIssues.length > 0 && (
+        <div className="validation-banner">
+          <div className="validation-header">
+            <strong>{validationIssues.length} issue{validationIssues.length !== 1 ? 's' : ''} found</strong>
           </div>
-        )}
-
-        {history.map((item, i) => (
-          <div key={i} className={`story-passage ${item.type}`}>
-            {item.type === 'choice' ? (
-              <p className="chosen-option">▸ {item.text}</p>
-            ) : (
-              <>
-                {item.title && <h3 className="passage-title">{item.title}</h3>}
-                <p className="passage-text">{item.text || <em>This scene has no content yet.</em>}</p>
-              </>
-            )}
-          </div>
-        ))}
-
-        {state.isEnd ? (
-          <div className="story-end">
-            <p>— The End —</p>
-            <button onClick={handleRestart}>Play Again</button>
-          </div>
-        ) : (
-          <div className="story-choices">
-            {state.choices.map(choice => (
-              <button
-                key={choice.id}
-                className="story-choice"
-                onClick={() => handleChoice(choice.id, choice.text)}
-              >
-                {choice.text}
-              </button>
+          <ul className="validation-list">
+            {validationIssues.map((issue, i) => (
+              <li key={i} className={`validation-item validation-${issue.severity}`}>
+                <span className="validation-icon">
+                  {issue.severity === 'error' ? '!!' : '!'}
+                </span>
+                {issue.message}
+              </li>
             ))}
-            {state.choices.length === 0 && !state.isEnd && (
-              <p className="no-choices-warning">This scene has no connected choices. Add choices in the editor.</p>
-            )}
-          </div>
-        )}
+          </ul>
+          {onGoToEditor && (
+            <button className="validation-dismiss" onClick={onGoToEditor}>
+              Go Fix
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="preview-content" ref={contentRef}>
+        {beats.map((beat, i) => {
+          const isActive = i === beats.length - 1;
+
+          return (
+            <div key={i} className="story-beat">
+              {/* Scene passage */}
+              <div className="story-passage">
+                {beat.title && <h3 className="passage-title">{beat.title}</h3>}
+                <p className="passage-text">
+                  {beat.content ? renderFormattedText(beat.content) : <em>This scene has no content yet.</em>}
+                </p>
+              </div>
+
+              {/* Ending */}
+              {beat.isEnd ? (
+                <div className="story-end">
+                  <p>— The End —</p>
+                  <button onClick={handleRestart}>Play Again</button>
+                </div>
+              ) : (
+                /* Choices */
+                <div className="story-choices">
+                  {beat.choices.map(choice => {
+                    const isChosen = beat.chosenId === choice.id;
+                    const isUnchosen = beat.chosenId && !isChosen;
+                    const isClickable = isActive && !beat.chosenId;
+
+                    return (
+                      <button
+                        key={choice.id}
+                        className={`story-choice ${isChosen ? 'chosen' : ''} ${isUnchosen ? 'unchosen' : ''}`}
+                        onClick={isClickable ? () => handleChoice(choice.id) : undefined}
+                        disabled={!isClickable}
+                      >
+                        {isChosen && '▸ '}{choice.text}
+                      </button>
+                    );
+                  })}
+                  {beat.choices.length === 0 && !beat.isEnd && isActive && (
+                    <p className="no-choices-warning">This scene has no connected choices. Add choices in the editor.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { createScene, getSampleStory, Icons } from './lib/storyData.jsx';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { createScene, createChoice, getSampleStory, Icons } from './lib/storyData.jsx';
 import SceneCard from './components/SceneCard';
 import PreviewPanel from './components/PreviewPanel';
 import ExportPanel from './components/ExportPanel';
@@ -120,8 +120,10 @@ export default function StoryBuilder() {
   const fileInputRef = useRef(null);
 
   const handleAddScene = () => {
+    const name = prompt('Scene name:', '');
+    if (name === null) return;
     pushUndo(storyTitle, scenes);
-    const newScene = createScene(Date.now().toString(), `Scene ${scenes.length + 1}`);
+    const newScene = createScene(Date.now().toString(), name || `Scene ${scenes.length + 1}`);
     setScenes([...scenes, newScene]);
     setSelectedSceneId(newScene.id);
   };
@@ -158,6 +160,24 @@ export default function StoryBuilder() {
     if (selectedSceneId === sceneId) {
       setSelectedSceneId(null);
     }
+  };
+
+  const handleCreateAndLink = (sourceScene, choiceId) => {
+    const choice = sourceScene.choices.find(c => c.id === choiceId);
+    const defaultName = choice?.text || '';
+    const name = prompt('New scene name:', defaultName);
+    if (name === null) return;
+    pushUndo(storyTitle, scenes);
+    const newId = Date.now().toString();
+    const newScene = createScene(newId, name || `Scene ${scenes.length + 1}`);
+    const updatedSource = {
+      ...sourceScene,
+      choices: sourceScene.choices.map(c =>
+        c.id === choiceId ? { ...c, targetSceneId: newId } : c
+      ),
+    };
+    setScenes(scenes.map(s => s.id === sourceScene.id ? updatedSource : s).concat(newScene));
+    setSelectedSceneId(newId);
   };
 
   const handleDuplicateScene = (sceneId) => {
@@ -211,6 +231,82 @@ export default function StoryBuilder() {
     };
     reader.readAsText(file);
   };
+
+  // BFS to compute depth, branch colors, and grouped display order
+  const BRANCH_COLORS = ['#7aa2f7', '#f7768e', '#9ece6a', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64', '#c0caf5'];
+
+  const { sceneGroups, sceneDepth, sceneBranches } = useMemo(() => {
+    const startScene = scenes.find(s => s.isStart) || scenes[0];
+    if (!startScene) return { sceneGroups: [{ label: 'Scenes', scenes }], sceneDepth: new Map(), sceneBranches: new Map() };
+
+    // BFS for depth
+    const depthMap = new Map();
+    const visited = new Set();
+    const queue = [{ id: startScene.id, depth: 0 }];
+    depthMap.set(startScene.id, 0);
+    visited.add(startScene.id);
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift();
+      const scene = scenes.find(s => s.id === id);
+      if (!scene) continue;
+
+      for (const choice of scene.choices) {
+        if (choice.targetSceneId && !visited.has(choice.targetSceneId)) {
+          visited.add(choice.targetSceneId);
+          depthMap.set(choice.targetSceneId, depth + 1);
+          queue.push({ id: choice.targetSceneId, depth: depth + 1 });
+        }
+      }
+    }
+
+    // Branch color tracking: BFS from each of start scene's choices
+    const branchMap = new Map(); // sceneId → Set of branch indices
+    branchMap.set(startScene.id, new Set()); // start itself has no branch color
+
+    startScene.choices.forEach((choice, branchIdx) => {
+      if (!choice.targetSceneId) return;
+      const bfsQueue = [choice.targetSceneId];
+      const bfsVisited = new Set([startScene.id, choice.targetSceneId]);
+
+      while (bfsQueue.length > 0) {
+        const id = bfsQueue.shift();
+        if (!branchMap.has(id)) branchMap.set(id, new Set());
+        branchMap.get(id).add(branchIdx);
+
+        const scene = scenes.find(s => s.id === id);
+        if (!scene) continue;
+        for (const c of scene.choices) {
+          if (c.targetSceneId && !bfsVisited.has(c.targetSceneId)) {
+            bfsVisited.add(c.targetSceneId);
+            bfsQueue.push(c.targetSceneId);
+          }
+        }
+      }
+    });
+
+    // Group scenes by depth
+    const maxDepth = Math.max(...depthMap.values(), 0);
+    const groups = [];
+    for (let d = 0; d <= maxDepth; d++) {
+      const groupScenes = scenes.filter(s => depthMap.get(s.id) === d);
+      if (groupScenes.length > 0) {
+        groups.push({
+          label: d === 0 ? 'Start' : `Depth ${d}`,
+          depth: d,
+          scenes: groupScenes,
+        });
+      }
+    }
+
+    // Unreachable scenes
+    const unreachable = scenes.filter(s => !visited.has(s.id));
+    if (unreachable.length > 0) {
+      groups.push({ label: 'Unreachable', depth: -1, scenes: unreachable });
+    }
+
+    return { sceneGroups: groups, sceneDepth: depthMap, sceneBranches: branchMap };
+  }, [scenes]);
 
   const stats = {
     scenes: scenes.length,
@@ -314,38 +410,56 @@ export default function StoryBuilder() {
               </div>
             </div>
 
-            <div className="scene-grid">
-              {scenes.map(scene => (
-                <SceneCard
-                  key={scene.id}
-                  scene={scene}
-                  scenes={scenes}
-                  isSelected={selectedSceneId === scene.id}
-                  onSelect={setSelectedSceneId}
-                  onUpdate={handleUpdateScene}
-                  onDelete={handleDeleteScene}
-                  onDuplicate={handleDuplicateScene}
-                  onStartConnection={setConnectingFrom}
-                  connectingFrom={connectingFrom}
-                  onCompleteConnection={(targetId) => {
-                    if (connectingFrom) {
-                      const sourceScene = scenes.find(s => s.id === connectingFrom.sceneId);
-                      const updatedChoices = sourceScene.choices.map(c =>
-                        c.id === connectingFrom.choiceId
-                          ? { ...c, targetSceneId: targetId }
-                          : c
-                      );
-                      handleUpdateScene({ ...sourceScene, choices: updatedChoices });
-                      setConnectingFrom(null);
-                    }
-                  }}
-                />
-              ))}
+            {sceneGroups.map((group, gi) => (
+              <div key={gi}>
+                <div className={`depth-separator ${group.depth === -1 ? 'unreachable' : ''}`}>
+                  <span className="depth-label">{group.label}</span>
+                  <span className="depth-line" />
+                </div>
+                <div className="scene-grid">
+                  {group.scenes.map(scene => {
+                    const branches = sceneBranches.get(scene.id);
+                    const branchColors = branches && branches.size > 0
+                      ? [...branches].map(i => BRANCH_COLORS[i % BRANCH_COLORS.length])
+                      : null;
 
-              <div className="add-scene-card" onClick={handleAddScene}>
-                <Icons.Plus />
-                <span>Add New Scene</span>
+                    return (
+                      <SceneCard
+                        key={scene.id}
+                        scene={scene}
+                        scenes={scenes}
+                        depth={sceneDepth.has(scene.id) ? sceneDepth.get(scene.id) : null}
+                        branchColors={branchColors}
+                        isSelected={selectedSceneId === scene.id}
+                        onSelect={setSelectedSceneId}
+                        onUpdate={handleUpdateScene}
+                        onDelete={handleDeleteScene}
+                        onDuplicate={handleDuplicateScene}
+                        onCreateAndLink={handleCreateAndLink}
+                        onStartConnection={setConnectingFrom}
+                        connectingFrom={connectingFrom}
+                        onCompleteConnection={(targetId) => {
+                          if (connectingFrom) {
+                            const sourceScene = scenes.find(s => s.id === connectingFrom.sceneId);
+                            const updatedChoices = sourceScene.choices.map(c =>
+                              c.id === connectingFrom.choiceId
+                                ? { ...c, targetSceneId: targetId }
+                                : c
+                            );
+                            handleUpdateScene({ ...sourceScene, choices: updatedChoices });
+                            setConnectingFrom(null);
+                          }
+                        }}
+                      />
+                    );
+                  })}
+                </div>
               </div>
+            ))}
+
+            <div className="add-scene-card" onClick={handleAddScene}>
+              <Icons.Plus />
+              <span>Add New Scene</span>
             </div>
           </div>
         )}
@@ -357,15 +471,22 @@ export default function StoryBuilder() {
               setSelectedSceneId(id);
               setView('editor');
             }}
+            onConnect={(sourceId, targetId) => {
+              pushUndo(storyTitle, scenes);
+              const source = scenes.find(s => s.id === sourceId);
+              if (!source) return;
+              const newChoice = createChoice(Date.now().toString(), '', targetId);
+              handleUpdateScene({ ...source, choices: [...source.choices, newChoice] });
+            }}
           />
         )}
 
         {view === 'preview' && (
-          <PreviewPanel scenes={scenes} />
+          <PreviewPanel scenes={scenes} onGoToEditor={() => setView('editor')} />
         )}
 
         {view === 'export' && (
-          <ExportPanel scenes={scenes} storyTitle={storyTitle} />
+          <ExportPanel scenes={scenes} storyTitle={storyTitle} onGoToEditor={() => setView('editor')} />
         )}
       </main>
 

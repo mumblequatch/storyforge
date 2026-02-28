@@ -205,6 +205,44 @@
   color: #f59e0b;
 }
 
+/* Depth Separators */
+.depth-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 16px;
+  padding: 0 4px;
+}
+
+.depth-separator:first-child {
+  margin-top: 0;
+}
+
+.depth-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #52525b;
+  white-space: nowrap;
+}
+
+.depth-line {
+  flex: 1;
+  height: 1px;
+  background: #27272a;
+}
+
+.depth-separator.unreachable .depth-label {
+  color: #71717a;
+}
+
+.depth-separator.unreachable .depth-line {
+  background: #3f3f46;
+  border-top: 1px dashed #3f3f46;
+  height: 0;
+}
+
 /* Scene Grid */
 .scene-grid {
   display: grid;
@@ -272,6 +310,11 @@
   background: linear-gradient(180deg, rgba(245, 158, 11, 0.08) 0%, #18181b 100%);
 }
 
+.scene-card.has-issues {
+  border-left: 3px solid #ef4444;
+  box-shadow: inset 3px 0 8px -3px rgba(239, 68, 68, 0.15);
+}
+
 .scene-card.can-connect {
   border-color: #06b6d4;
   animation: pulse 1.5s infinite;
@@ -323,6 +366,16 @@
 .badge.ending {
   background: rgba(245, 158, 11, 0.15);
   color: #f59e0b;
+}
+
+.badge.depth {
+  background: rgba(113, 113, 122, 0.15);
+  color: #71717a;
+}
+
+.badge.unreachable {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
 }
 
 .scene-actions {
@@ -520,6 +573,22 @@
   padding: 8px;
 }
 
+.mark-ending-link {
+  background: none;
+  border: none;
+  color: #f59e0b;
+  font-size: inherit;
+  font-style: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.mark-ending-link:hover {
+  color: #fbbf24;
+}
+
 /* Preview Panel */
 .preview-panel {
   flex: 1;
@@ -572,6 +641,28 @@
 .preview-controls button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.validation-banner {
+  margin: 16px 24px 0;
+  padding: 16px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+}
+
+.validation-banner .validation-header {
+  color: #f59e0b;
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+}
+
+.validation-banner .validation-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .preview-content {
@@ -643,10 +734,37 @@
   transition: all 0.2s ease;
 }
 
-.story-choice:hover {
+.story-choice:hover:not(:disabled) {
   background: rgba(124, 58, 237, 0.2);
   border-color: #7c3aed;
   transform: translateX(4px);
+}
+
+.story-choice.chosen {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: #7c3aed;
+  color: #c4b5fd;
+  cursor: default;
+  font-style: italic;
+}
+
+.story-choice.unchosen {
+  opacity: 0.3;
+  cursor: default;
+  border-color: rgba(124, 58, 237, 0.15);
+}
+
+.story-choice:disabled:not(.chosen):not(.unchosen) {
+  cursor: default;
+}
+
+.story-beat {
+  margin-bottom: 12px;
+}
+
+.story-beat + .story-beat {
+  padding-top: 16px;
+  border-top: 1px solid rgba(124, 58, 237, 0.1);
 }
 
 .story-end {
@@ -789,6 +907,192 @@
 
 .export-actions button:hover {
   background: #3f3f46;
+}
+
+/* Publish */
+.publish-btn {
+  background: #22c55e !important;
+  border-color: #16a34a !important;
+  color: #fff !important;
+}
+
+.publish-btn:hover:not(:disabled) {
+  background: #16a34a !important;
+}
+
+.publish-btn:disabled {
+  opacity: 0.7;
+  cursor: wait !important;
+}
+
+.publish-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.publish-url {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.publish-url-label {
+  color: #22c55e;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.publish-url a {
+  color: #a78bfa;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.publish-copy-btn {
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  color: #e4e4e7;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease;
+  margin-left: auto;
+}
+
+.publish-copy-btn:hover {
+  background: #3f3f46;
+}
+
+.publish-status {
+  margin-top: 12px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.publish-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.publish-meta {
+  margin-top: 12px;
+}
+
+.validation-report {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+}
+
+.validation-header {
+  color: #f59e0b;
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+}
+
+.validation-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.validation-item {
+  font-size: 0.9rem;
+  color: #d4d4d8;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.validation-icon {
+  font-weight: 700;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.validation-error .validation-icon {
+  color: #ef4444;
+}
+
+.validation-warning .validation-icon {
+  color: #f59e0b;
+}
+
+.validation-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.validation-dismiss {
+  padding: 8px 20px;
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  color: #e4e4e7;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease;
+}
+
+.validation-dismiss:hover {
+  background: #3f3f46;
+}
+
+.validation-override {
+  padding: 8px 20px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease;
+}
+
+.validation-override:hover {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.forget-token-link {
+  background: none;
+  border: none;
+  color: #71717a;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  font-family: inherit;
+}
+
+.forget-token-link:hover {
+  color: #a1a1aa;
 }
 
 /* Story Map */

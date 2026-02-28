@@ -1,4 +1,26 @@
 // ============================================
+// INLINE TEXT FORMATTING
+// ============================================
+
+// Renders *italic* markup as React elements
+export function renderFormattedText(text) {
+  if (!text) return null;
+  const parts = text.split(/(\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
+}
+
+// Converts *italic* to <em> for HTML export strings
+export function formatTextToHTML(text) {
+  if (!text) return '';
+  return text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
+// ============================================
 // STORY DATA STRUCTURES
 // ============================================
 
@@ -12,11 +34,72 @@ export const createScene = (id, title = 'New Scene', content = '') => ({
   isEnding: false
 });
 
-export const createChoice = (id, text = 'Choice text...', targetSceneId = null) => ({
+export const createChoice = (id, text = '', targetSceneId = null) => ({
   id,
   text,
   targetSceneId
 });
+
+// ============================================
+// STORY VALIDATION
+// ============================================
+
+export const validateStory = (scenes) => {
+  const issues = [];
+  const sceneIds = new Set(scenes.map(s => s.id));
+  const targetedIds = new Set();
+
+  scenes.forEach(scene => {
+    if (!scene.content || !scene.content.trim()) {
+      issues.push({
+        type: 'empty',
+        severity: 'warning',
+        message: `"${scene.title || 'Untitled scene'}" has no content`,
+      });
+    }
+
+    const validChoices = scene.choices.filter(c => c.targetSceneId);
+    validChoices.forEach(c => targetedIds.add(c.targetSceneId));
+
+    scene.choices.forEach(c => {
+      if (c.targetSceneId && !sceneIds.has(c.targetSceneId)) {
+        issues.push({
+          type: 'broken',
+          severity: 'error',
+          message: `"${scene.title || 'Untitled'}" has a choice linking to a missing scene`,
+        });
+      }
+    });
+
+    if (!scene.isEnding && validChoices.length === 0) {
+      issues.push({
+        type: 'deadend',
+        severity: 'error',
+        message: `"${scene.title || 'Untitled'}" is a dead end (no choices and not marked as an ending)`,
+      });
+    }
+  });
+
+  scenes.forEach(scene => {
+    if (!scene.isStart && !targetedIds.has(scene.id)) {
+      issues.push({
+        type: 'orphan',
+        severity: 'warning',
+        message: `"${scene.title || 'Untitled'}" is unreachable (no scene links to it)`,
+      });
+    }
+  });
+
+  if (!scenes.some(s => s.isStart)) {
+    issues.push({
+      type: 'nostart',
+      severity: 'error',
+      message: 'No scene is marked as the start',
+    });
+  }
+
+  return issues;
+};
 
 // ============================================
 // INK CODE GENERATOR

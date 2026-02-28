@@ -4,11 +4,14 @@ import { createChoice, Icons } from '../lib/storyData.jsx';
 const SceneCard = ({
   scene,
   scenes,
+  depth,
+  branchColors,
   isSelected,
   onSelect,
   onUpdate,
   onDelete,
   onDuplicate,
+  onCreateAndLink,
   onStartConnection,
   connectingFrom,
   onCompleteConnection
@@ -58,9 +61,32 @@ const SceneCard = ({
 
   const isValidConnectionTarget = connectingFrom && connectingFrom.sceneId !== scene.id;
 
+  // Live issue detection
+  const sceneIds = new Set(scenes.map(s => s.id));
+  const validChoices = scene.choices.filter(c => c.targetSceneId);
+  const isDeadEnd = !scene.isEnding && validChoices.length === 0;
+  const isEmpty = !scene.content?.trim();
+  const hasBrokenLinks = scene.choices.some(c => c.targetSceneId && !sceneIds.has(c.targetSceneId));
+  const hasIssues = isDeadEnd || isEmpty || hasBrokenLinks;
+
+  // Branch color stripe style
+  const branchStyle = branchColors && branchColors.length > 0
+    ? {
+        borderLeftWidth: '4px',
+        borderLeftStyle: 'solid',
+        borderLeftColor: branchColors.length === 1
+          ? branchColors[0]
+          : undefined,
+        borderImage: branchColors.length > 1
+          ? `linear-gradient(to bottom, ${branchColors.join(', ')}) 1`
+          : undefined,
+      }
+    : {};
+
   return (
     <div
-      className={`scene-card ${isSelected ? 'selected' : ''} ${scene.isStart ? 'is-start' : ''} ${scene.isEnding ? 'is-ending' : ''} ${isValidConnectionTarget ? 'can-connect' : ''}`}
+      className={`scene-card ${isSelected ? 'selected' : ''} ${scene.isStart ? 'is-start' : ''} ${scene.isEnding ? 'is-ending' : ''} ${isValidConnectionTarget ? 'can-connect' : ''} ${hasIssues ? 'has-issues' : ''}`}
+      style={branchStyle}
     >
       <div
         className="scene-header"
@@ -69,6 +95,10 @@ const SceneCard = ({
         <div className="scene-badges">
           {scene.isStart && <span className="badge start"><Icons.Flag /> Start</span>}
           {scene.isEnding && <span className="badge ending"><Icons.End /> Ending</span>}
+          {depth !== null && depth !== undefined && (
+            <span className="badge depth">D{depth}</span>
+          )}
+          {depth === null && <span className="badge unreachable">Unreachable</span>}
         </div>
         <div className="scene-actions">
           <button
@@ -150,13 +180,21 @@ const SceneCard = ({
                 <div className="choice-target">
                   <select
                     value={choice.targetSceneId || ''}
-                    onChange={(e) => handleChoiceUpdate(choice.id, { targetSceneId: e.target.value || null })}
+                    onChange={(e) => {
+                      if (e.target.value === '__new__') {
+                        e.target.value = choice.targetSceneId || '';
+                        onCreateAndLink(scene, choice.id);
+                      } else {
+                        handleChoiceUpdate(choice.id, { targetSceneId: e.target.value || null });
+                      }
+                    }}
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                     onTouchStart={(e) => e.stopPropagation()}
                     onFocus={(e) => e.stopPropagation()}
                   >
                     <option value="">→ Select destination...</option>
+                    <option value="__new__">+ New Scene...</option>
                     {scenes.filter(s => s.id !== scene.id).map(s => (
                       <option key={s.id} value={s.id}>→ {s.title || 'Untitled'}</option>
                     ))}
@@ -171,7 +209,15 @@ const SceneCard = ({
               </div>
             ))}
             {scene.choices.length === 0 && (
-              <div className="no-choices">No choices yet. Add choices to branch the story.</div>
+              <div className="no-choices">
+                No choices yet. Add choices or{' '}
+                <button
+                  className="mark-ending-link"
+                  onClick={(e) => { e.stopPropagation(); onUpdate({ ...scene, isEnding: true }); }}
+                >
+                  mark as ending
+                </button>.
+              </div>
             )}
           </div>
         </div>
