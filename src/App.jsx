@@ -375,7 +375,7 @@ export default function StoryBuilder() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json,.ink"
+            accept=".json,.ink,text/plain"
             className="hidden-input"
             onChange={handleLoad}
           />
