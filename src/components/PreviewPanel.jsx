@@ -28,12 +28,8 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
   }, [scenes]);
 
   useEffect(() => {
-    const container = contentRef.current;
-    const activeBeat = activeBeatRef.current;
-    if (container && activeBeat) {
-      const containerHeight = container.clientHeight;
-      const beatTop = activeBeat.offsetTop;
-      container.scrollTo({ top: beatTop - containerHeight / 2 + 40, behavior: 'smooth' });
+    if (activeBeatRef.current) {
+      activeBeatRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [beats]);
 
