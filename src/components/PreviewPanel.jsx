@@ -8,6 +8,7 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
   const [engine, setEngine] = useState(null);
   const [beats, setBeats] = useState([]);
   const contentRef = useRef(null);
+  const activeBeatRef = useRef(null);
 
   const buildBeat = (eng) => {
     const st = eng.getCurrentState();
@@ -27,8 +28,12 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
   }, [scenes]);
 
   useEffect(() => {
-    if (contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    const container = contentRef.current;
+    const activeBeat = activeBeatRef.current;
+    if (container && activeBeat) {
+      const containerHeight = container.clientHeight;
+      const beatTop = activeBeat.offsetTop;
+      container.scrollTo({ top: beatTop - containerHeight / 2 + 40, behavior: 'smooth' });
     }
   }, [beats]);
 
@@ -109,7 +114,7 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
           const isActive = i === beats.length - 1;
 
           return (
-            <div key={i} className="story-beat">
+            <div key={i} className="story-beat" ref={isActive ? activeBeatRef : undefined}>
               {/* Scene passage */}
               <div className="story-passage">
                 {beat.title && <h3 className="passage-title">{beat.title}</h3>}
