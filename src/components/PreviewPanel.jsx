@@ -10,9 +10,16 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
   const contentRef = useRef(null);
 
   const activeBeatCallback = useCallback((node) => {
-    if (node) {
+    if (node && contentRef.current) {
       requestAnimationFrame(() => {
-        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const container = contentRef.current;
+        const elRect = node.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const offsetInContainer = elRect.top - containerRect.top + container.scrollTop;
+        container.scrollTo({
+          top: offsetInContainer - container.clientHeight / 2,
+          behavior: 'smooth',
+        });
       });
     }
   }, []);
