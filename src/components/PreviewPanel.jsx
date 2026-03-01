@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { StoryEngine, Icons, renderFormattedText, validateStory } from '../lib/storyData.jsx';
 
 // Each "beat" = { scene title/content, choices[], chosenId | null }
@@ -8,7 +8,14 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
   const [engine, setEngine] = useState(null);
   const [beats, setBeats] = useState([]);
   const contentRef = useRef(null);
-  const activeBeatRef = useRef(null);
+
+  const activeBeatCallback = useCallback((node) => {
+    if (node) {
+      requestAnimationFrame(() => {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+  }, []);
 
   const buildBeat = (eng) => {
     const st = eng.getCurrentState();
@@ -26,12 +33,6 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
     setEngine(eng);
     setBeats([buildBeat(eng)]);
   }, [scenes]);
-
-  useEffect(() => {
-    if (activeBeatRef.current) {
-      activeBeatRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [beats]);
 
   const handleChoice = (choiceId) => {
     if (!engine) return;
@@ -110,7 +111,7 @@ const PreviewPanel = ({ scenes, onGoToEditor }) => {
           const isActive = i === beats.length - 1;
 
           return (
-            <div key={i} className="story-beat" ref={isActive ? activeBeatRef : undefined}>
+            <div key={i} className="story-beat" ref={isActive ? activeBeatCallback : undefined}>
               {/* Scene passage */}
               <div className="story-passage">
                 {beat.title && <h3 className="passage-title">{beat.title}</h3>}
