@@ -154,31 +154,53 @@ export function parseInkFile(text, filename = 'Imported Story') {
   // First pass: split into knots
   const knots = []; // { name, contentLines, choiceLines, bareDivert }
   let current = null;
+  let initialDivert = null;
 
   for (const line of lines) {
-    const headerMatch = line.match(/^===\s*(\w+)\s*===\s*$/);
+    const trimmed = line.trim();
+
+    // Skip comments, VAR declarations, and ~ logic lines
+    if (trimmed.startsWith('//') || trimmed.startsWith('VAR ') || trimmed.startsWith('~')) continue;
+
+    const headerMatch = trimmed.match(/^===\s*(\w+)\s*===\s*$/);
     if (headerMatch) {
       if (current) knots.push(current);
       current = { name: headerMatch[1], contentLines: [], choiceLines: [], bareDivert: null };
       continue;
     }
-    if (!current) continue;
 
-    const choiceMatch = line.match(/^\*\s*\[([^\]]*)\]\s*->\s*(\w+)\s*$/);
+    // Bare divert before any knot — track as initial entry point
+    if (!current) {
+      const earlyDivert = trimmed.match(/^->\s*(\w+)\s*$/);
+      if (earlyDivert) initialDivert = earlyDivert[1];
+      continue;
+    }
+
+    // Choices: both * (once-only) and + (sticky) with [text] -> target
+    const choiceMatch = trimmed.match(/^[*+]\s*\[([^\]]*)\]\s*->\s*(\w+)\s*$/);
     if (choiceMatch) {
       current.choiceLines.push({ text: choiceMatch[1], target: choiceMatch[2] });
       continue;
     }
 
-    const divertMatch = line.match(/^->\s*(\w+)\s*$/);
+    // Bare divert -> knot or -> END
+    const divertMatch = trimmed.match(/^->\s*(\w+)\s*$/);
     if (divertMatch) {
       current.bareDivert = divertMatch[1];
       continue;
     }
 
-    current.contentLines.push(line);
+    // Strip inline conditional text {condition: text|} → keep just the text
+    const cleaned = line.replace(/\{[^:}]+:\s*([^|}]*)\|?\}/g, '$1');
+    current.contentLines.push(cleaned);
   }
   if (current) knots.push(current);
+
+  // If there's an initial divert (-> wake_up), mark that knot as start
+  if (initialDivert && !knots.some(k => k.name === 'start')) {
+    const target = knots.find(k => k.name === initialDivert);
+    if (target) target.name = 'start';
+  }
 
   // Build knot-name → scene-id map
   const knotToId = new Map();
