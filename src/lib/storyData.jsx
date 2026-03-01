@@ -144,6 +144,92 @@ export const generateInkCode = (scenes) => {
 };
 
 // ============================================
+// INK FILE PARSER
+// ============================================
+
+export function parseInkFile(text, filename = 'Imported Story') {
+  const title = filename.replace(/\.ink$/i, '');
+  const lines = text.split(/\r?\n/);
+
+  // First pass: split into knots
+  const knots = []; // { name, contentLines, choiceLines, bareDivert }
+  let current = null;
+
+  for (const line of lines) {
+    const headerMatch = line.match(/^===\s*(\w+)\s*===\s*$/);
+    if (headerMatch) {
+      if (current) knots.push(current);
+      current = { name: headerMatch[1], contentLines: [], choiceLines: [], bareDivert: null };
+      continue;
+    }
+    if (!current) continue;
+
+    const choiceMatch = line.match(/^\*\s*\[([^\]]*)\]\s*->\s*(\w+)\s*$/);
+    if (choiceMatch) {
+      current.choiceLines.push({ text: choiceMatch[1], target: choiceMatch[2] });
+      continue;
+    }
+
+    const divertMatch = line.match(/^->\s*(\w+)\s*$/);
+    if (divertMatch) {
+      current.bareDivert = divertMatch[1];
+      continue;
+    }
+
+    current.contentLines.push(line);
+  }
+  if (current) knots.push(current);
+
+  // Build knot-name → scene-id map
+  const knotToId = new Map();
+  knots.forEach((knot, i) => {
+    knotToId.set(knot.name, String(Date.now() + i));
+  });
+
+  // Create scenes (first pass)
+  const scenes = knots.map(knot => {
+    const id = knotToId.get(knot.name);
+    const content = knot.contentLines
+      .join('\n')
+      .replace(/^\n+|\n+$/g, '');
+    const isEnding = knot.bareDivert === 'END' && knot.choiceLines.length === 0;
+
+    return {
+      ...createScene(id, knot.name === 'start' ? 'Start' : knot.name, content),
+      isStart: knot.name === 'start',
+      isEnding,
+      choices: knot.choiceLines.map((c, ci) =>
+        createChoice(`${id}_c${ci}`, c.text, null)
+      ),
+      _choiceTargets: knot.choiceLines.map(c => c.target),
+      _bareDivert: knot.bareDivert,
+    };
+  });
+
+  // Second pass: resolve choice targets and bare diverts
+  scenes.forEach(scene => {
+    scene.choices = scene.choices.map((choice, ci) => {
+      const targetName = scene._choiceTargets[ci];
+      const targetId = targetName === 'END' ? null : knotToId.get(targetName) || null;
+      return { ...choice, targetSceneId: targetId };
+    });
+
+    // Bare divert (not END) with no choices → add an auto-link choice
+    if (scene._bareDivert && scene._bareDivert !== 'END' && scene.choices.length === 0) {
+      const targetId = knotToId.get(scene._bareDivert) || null;
+      if (targetId) {
+        scene.choices.push(createChoice(`${scene.id}_auto`, 'Continue', targetId));
+      }
+    }
+
+    delete scene._choiceTargets;
+    delete scene._bareDivert;
+  });
+
+  return { title, scenes };
+}
+
+// ============================================
 // STORY RUNTIME (for preview)
 // ============================================
 

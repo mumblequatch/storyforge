@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { createScene, createChoice, getSampleStory, Icons } from './lib/storyData.jsx';
+import { createScene, createChoice, getSampleStory, Icons, parseInkFile } from './lib/storyData.jsx';
 import SceneCard from './components/SceneCard';
 import PreviewPanel from './components/PreviewPanel';
 import ExportPanel from './components/ExportPanel';
@@ -219,7 +219,15 @@ export default function StoryBuilder() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const data = JSON.parse(event.target.result);
+        const raw = event.target.result;
+        let data;
+
+        if (file.name.endsWith('.ink')) {
+          data = parseInkFile(raw, file.name);
+        } else {
+          data = JSON.parse(raw);
+        }
+
         if (data.scenes) {
           pushUndo(storyTitle, scenes);
           setScenes(data.scenes);
@@ -230,6 +238,7 @@ export default function StoryBuilder() {
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   // BFS to compute depth, branch colors, and grouped display order
@@ -366,7 +375,7 @@ export default function StoryBuilder() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json"
+            accept=".json,.ink"
             className="hidden-input"
             onChange={handleLoad}
           />
