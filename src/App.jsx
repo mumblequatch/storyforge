@@ -55,10 +55,7 @@ export default function StoryBuilder() {
       if (prev.length === 0) return prev;
       const next = [...prev];
       const snapshot = next.pop();
-
-      // push current state to redo
       setRedoStack(r => [...r, JSON.stringify({ title: storyTitle, scenes })]);
-
       const data = JSON.parse(snapshot);
       setStoryTitle(data.title);
       setScenes(data.scenes);
@@ -71,10 +68,7 @@ export default function StoryBuilder() {
       if (prev.length === 0) return prev;
       const next = [...prev];
       const snapshot = next.pop();
-
-      // push current state to undo
       setUndoStack(u => [...u, JSON.stringify({ title: storyTitle, scenes })]);
-
       const data = JSON.parse(snapshot);
       setStoryTitle(data.title);
       setScenes(data.scenes);
@@ -87,11 +81,12 @@ export default function StoryBuilder() {
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         e.preventDefault();
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
+        if (e.shiftKey) redo();
+        else undo();
+      }
+      // Escape closes the editor panel
+      if (e.key === 'Escape' && selectedSceneId) {
+        setSelectedSceneId(null);
       }
     };
     window.addEventListener('keydown', handler);
@@ -110,12 +105,12 @@ export default function StoryBuilder() {
     setStoryTitle('Untitled Story');
     setScenes([{ ...createScene(Date.now().toString(), 'Opening Scene', ''), isStart: true, choices: [] }]);
     setSelectedSceneId(null);
-    setView('editor');
+    setOverlay(null);
     setShowNewStoryConfirm(false);
   };
 
   const [selectedSceneId, setSelectedSceneId] = useState(null);
-  const [view, setView] = useState('editor');
+  const [overlay, setOverlay] = useState(null); // 'preview' | 'export' | null
   const [connectingFrom, setConnectingFrom] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -128,7 +123,6 @@ export default function StoryBuilder() {
     setSelectedSceneId(newScene.id);
   };
 
-  // BUG FIX: handleUpdateScene now preserves all properties from updatedScene
   const handleUpdateScene = (updatedScene) => {
     pushUndo(storyTitle, scenes);
     if (updatedScene.isStart) {
@@ -232,6 +226,7 @@ export default function StoryBuilder() {
           pushUndo(storyTitle, scenes);
           setScenes(data.scenes);
           setStoryTitle(data.title || 'Imported Story');
+          setSelectedSceneId(null);
         }
       } catch {
         alert('Invalid project file');
@@ -241,80 +236,25 @@ export default function StoryBuilder() {
     e.target.value = '';
   };
 
-  // BFS to compute depth, branch colors, and grouped display order
-  const BRANCH_COLORS = ['#7aa2f7', '#f7768e', '#9ece6a', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64', '#c0caf5'];
-
-  const { sceneGroups, sceneDepth, sceneBranches } = useMemo(() => {
+  // BFS for depth (used by editor panel badges)
+  const sceneDepth = useMemo(() => {
     const startScene = scenes.find(s => s.isStart) || scenes[0];
-    if (!startScene) return { sceneGroups: [{ label: 'Scenes', scenes }], sceneDepth: new Map(), sceneBranches: new Map() };
-
-    // BFS for depth
+    if (!startScene) return new Map();
     const depthMap = new Map();
-    const visited = new Set();
     const queue = [{ id: startScene.id, depth: 0 }];
     depthMap.set(startScene.id, 0);
-    visited.add(startScene.id);
-
     while (queue.length > 0) {
       const { id, depth } = queue.shift();
       const scene = scenes.find(s => s.id === id);
       if (!scene) continue;
-
       for (const choice of scene.choices) {
-        if (choice.targetSceneId && !visited.has(choice.targetSceneId)) {
-          visited.add(choice.targetSceneId);
+        if (choice.targetSceneId && !depthMap.has(choice.targetSceneId)) {
           depthMap.set(choice.targetSceneId, depth + 1);
           queue.push({ id: choice.targetSceneId, depth: depth + 1 });
         }
       }
     }
-
-    // Branch color tracking: BFS from each of start scene's choices
-    const branchMap = new Map(); // sceneId → Set of branch indices
-    branchMap.set(startScene.id, new Set()); // start itself has no branch color
-
-    startScene.choices.forEach((choice, branchIdx) => {
-      if (!choice.targetSceneId) return;
-      const bfsQueue = [choice.targetSceneId];
-      const bfsVisited = new Set([startScene.id, choice.targetSceneId]);
-
-      while (bfsQueue.length > 0) {
-        const id = bfsQueue.shift();
-        if (!branchMap.has(id)) branchMap.set(id, new Set());
-        branchMap.get(id).add(branchIdx);
-
-        const scene = scenes.find(s => s.id === id);
-        if (!scene) continue;
-        for (const c of scene.choices) {
-          if (c.targetSceneId && !bfsVisited.has(c.targetSceneId)) {
-            bfsVisited.add(c.targetSceneId);
-            bfsQueue.push(c.targetSceneId);
-          }
-        }
-      }
-    });
-
-    // Group scenes by depth
-    const maxDepth = Math.max(...depthMap.values(), 0);
-    const groups = [];
-    for (let d = 0; d <= maxDepth; d++) {
-      const groupScenes = scenes.filter(s => depthMap.get(s.id) === d);
-      if (groupScenes.length > 0) {
-        groups.push({
-          label: d === 0 ? 'Start' : `Depth ${d}`,
-          depth: d,
-          scenes: groupScenes,
-        });
-      }
-    }
-
-    // Unreachable scenes
-    const unreachable = scenes.filter(s => !visited.has(s.id));
-    if (unreachable.length > 0) {
-      groups.push({ label: 'Unreachable', depth: -1, scenes: unreachable });
-    }
-
-    return { sceneGroups: groups, sceneDepth: depthMap, sceneBranches: branchMap };
+    return depthMap;
   }, [scenes]);
 
   const stats = {
@@ -323,6 +263,8 @@ export default function StoryBuilder() {
     endings: scenes.filter(s => s.isEnding).length,
     unconnected: scenes.filter(s => !s.isEnding && s.choices.filter(c => c.targetSceneId).length === 0).length
   };
+
+  const selectedScene = selectedSceneId ? scenes.find(s => s.id === selectedSceneId) : null;
 
   return (
     <div className="story-builder">
@@ -344,33 +286,6 @@ export default function StoryBuilder() {
           />
         </div>
 
-        <div className="nav-tabs">
-          <button
-            className={`nav-tab ${view === 'editor' ? 'active' : ''}`}
-            onClick={() => setView('editor')}
-          >
-            <Icons.Grid /> Build
-          </button>
-          <button
-            className={`nav-tab ${view === 'map' ? 'active' : ''}`}
-            onClick={() => setView('map')}
-          >
-            <Icons.Map /> Map
-          </button>
-          <button
-            className={`nav-tab ${view === 'preview' ? 'active' : ''}`}
-            onClick={() => setView('preview')}
-          >
-            <Icons.Play /> Test
-          </button>
-          <button
-            className={`nav-tab ${view === 'export' ? 'active' : ''}`}
-            onClick={() => setView('export')}
-          >
-            <Icons.Share /> Export
-          </button>
-        </div>
-
         <div className="header-actions">
           <input
             ref={fileInputRef}
@@ -379,6 +294,14 @@ export default function StoryBuilder() {
             className="hidden-input"
             onChange={handleLoad}
           />
+          <div className="stats">
+            <div className="stat"><strong>{stats.scenes}</strong> scenes</div>
+            <div className="stat"><strong>{stats.choices}</strong> choices</div>
+            <div className="stat"><strong>{stats.endings}</strong> endings</div>
+            {stats.unconnected > 0 && (
+              <div className="stat warning"><strong>{stats.unconnected}</strong> dead ends</div>
+            )}
+          </div>
           <button className="btn btn-secondary" title="Undo (Cmd+Z)" onClick={undo} disabled={undoStack.length === 0}>
             <Icons.Undo />
           </button>
@@ -387,11 +310,8 @@ export default function StoryBuilder() {
           </button>
           <button className="btn btn-accent" onClick={() => {
             const hasContent = scenes.length > 1 || (scenes[0]?.content && scenes[0].content.length > 0);
-            if (hasContent) {
-              setShowNewStoryConfirm(true);
-            } else {
-              handleNewStory();
-            }
+            if (hasContent) setShowNewStoryConfirm(true);
+            else handleNewStory();
           }}>
             <Icons.Plus /> New
           </button>
@@ -401,101 +321,94 @@ export default function StoryBuilder() {
           <button className="btn btn-secondary" onClick={handleSave}>
             <Icons.Save /> Save
           </button>
+          <button
+            className={`btn ${overlay === 'preview' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setOverlay(overlay === 'preview' ? null : 'preview')}
+          >
+            <Icons.Play /> Test
+          </button>
+          <button
+            className={`btn ${overlay === 'export' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setOverlay(overlay === 'export' ? null : 'export')}
+          >
+            <Icons.Share /> Export
+          </button>
         </div>
       </header>
 
       <main className="main-content">
-        {view === 'editor' && (
-          <div className="editor-panel">
-            <div className="editor-header">
-              <h2>Story Scenes</h2>
-              <div className="stats">
-                <div className="stat"><strong>{stats.scenes}</strong> scenes</div>
-                <div className="stat"><strong>{stats.choices}</strong> choices</div>
-                <div className="stat"><strong>{stats.endings}</strong> endings</div>
-                {stats.unconnected > 0 && (
-                  <div className="stat warning"><strong>{stats.unconnected}</strong> dead ends</div>
-                )}
+        {/* Map is always the base layer */}
+        <StoryMap
+          scenes={scenes}
+          selectedSceneId={selectedSceneId}
+          onSelectScene={(id) => {
+            setSelectedSceneId(id === selectedSceneId ? null : id);
+            setOverlay(null);
+          }}
+          onConnect={(sourceId, targetId) => {
+            pushUndo(storyTitle, scenes);
+            const source = scenes.find(s => s.id === sourceId);
+            if (!source) return;
+            const newChoice = createChoice(Date.now().toString(), '', targetId);
+            handleUpdateScene({ ...source, choices: [...source.choices, newChoice] });
+          }}
+          onAddScene={handleAddScene}
+        />
+
+        {/* Scene editor panel slides in from the right */}
+        <div className={`scene-editor-panel ${selectedScene ? 'open' : ''}`}>
+          {selectedScene && (
+            <>
+              <div className="scene-editor-header">
+                <span className="scene-editor-title">Edit Scene</span>
+                <button className="icon-btn" onClick={() => setSelectedSceneId(null)} title="Close (Esc)">
+                  <Icons.Close />
+                </button>
               </div>
-            </div>
-
-            {sceneGroups.map((group, gi) => (
-              <div key={gi}>
-                <div className={`depth-separator ${group.depth === -1 ? 'unreachable' : ''}`}>
-                  <span className="depth-label">{group.label}</span>
-                  <span className="depth-line" />
-                </div>
-                <div className="scene-grid">
-                  {group.scenes.map(scene => {
-                    const branches = sceneBranches.get(scene.id);
-                    const branchColors = branches && branches.size > 0
-                      ? [...branches].map(i => BRANCH_COLORS[i % BRANCH_COLORS.length])
-                      : null;
-
-                    return (
-                      <SceneCard
-                        key={scene.id}
-                        scene={scene}
-                        scenes={scenes}
-                        depth={sceneDepth.has(scene.id) ? sceneDepth.get(scene.id) : null}
-                        branchColors={branchColors}
-                        isSelected={selectedSceneId === scene.id}
-                        onSelect={setSelectedSceneId}
-                        onUpdate={handleUpdateScene}
-                        onDelete={handleDeleteScene}
-                        onDuplicate={handleDuplicateScene}
-                        onCreateAndLink={handleCreateAndLink}
-                        onStartConnection={setConnectingFrom}
-                        connectingFrom={connectingFrom}
-                        onCompleteConnection={(targetId) => {
-                          if (connectingFrom) {
-                            const sourceScene = scenes.find(s => s.id === connectingFrom.sceneId);
-                            const updatedChoices = sourceScene.choices.map(c =>
-                              c.id === connectingFrom.choiceId
-                                ? { ...c, targetSceneId: targetId }
-                                : c
-                            );
-                            handleUpdateScene({ ...sourceScene, choices: updatedChoices });
-                            setConnectingFrom(null);
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </div>
+              <div className="scene-editor-body">
+                <SceneCard
+                  key={selectedScene.id}
+                  scene={selectedScene}
+                  scenes={scenes}
+                  depth={sceneDepth.has(selectedScene.id) ? sceneDepth.get(selectedScene.id) : null}
+                  branchColors={null}
+                  isSelected={true}
+                  onSelect={() => {}}
+                  onUpdate={handleUpdateScene}
+                  onDelete={(id) => { handleDeleteScene(id); setSelectedSceneId(null); }}
+                  onDuplicate={handleDuplicateScene}
+                  onCreateAndLink={handleCreateAndLink}
+                  onStartConnection={setConnectingFrom}
+                  connectingFrom={connectingFrom}
+                  onCompleteConnection={(targetId) => {
+                    if (connectingFrom) {
+                      const sourceScene = scenes.find(s => s.id === connectingFrom.sceneId);
+                      const updatedChoices = sourceScene.choices.map(c =>
+                        c.id === connectingFrom.choiceId
+                          ? { ...c, targetSceneId: targetId }
+                          : c
+                      );
+                      handleUpdateScene({ ...sourceScene, choices: updatedChoices });
+                      setConnectingFrom(null);
+                    }
+                  }}
+                />
               </div>
-            ))}
+            </>
+          )}
+        </div>
 
-            <div className="add-scene-card" onClick={handleAddScene}>
-              <Icons.Plus />
-              <span>Add New Scene</span>
-            </div>
+        {/* Overlay panels for Test and Export */}
+        {overlay === 'preview' && (
+          <div className="overlay-panel">
+            <PreviewPanel scenes={scenes} onGoToEditor={() => setOverlay(null)} />
           </div>
         )}
 
-        {view === 'map' && (
-          <StoryMap
-            scenes={scenes}
-            onSelectScene={(id) => {
-              setSelectedSceneId(id);
-              setView('editor');
-            }}
-            onConnect={(sourceId, targetId) => {
-              pushUndo(storyTitle, scenes);
-              const source = scenes.find(s => s.id === sourceId);
-              if (!source) return;
-              const newChoice = createChoice(Date.now().toString(), '', targetId);
-              handleUpdateScene({ ...source, choices: [...source.choices, newChoice] });
-            }}
-          />
-        )}
-
-        {view === 'preview' && (
-          <PreviewPanel scenes={scenes} onGoToEditor={() => setView('editor')} />
-        )}
-
-        {view === 'export' && (
-          <ExportPanel scenes={scenes} storyTitle={storyTitle} onGoToEditor={() => setView('editor')} />
+        {overlay === 'export' && (
+          <div className="overlay-panel">
+            <ExportPanel scenes={scenes} storyTitle={storyTitle} onGoToEditor={() => setOverlay(null)} />
+          </div>
         )}
       </main>
 
